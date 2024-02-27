@@ -1,4 +1,3 @@
-import random
 from utils.featurization import featurize_mol, featurize_mol_from_smiles
 from utils.torsion import *
 from diffusion.likelihood import *
@@ -13,6 +12,7 @@ from rdkit.Chem import AllChem
 from utils.utils import time_limit, TimeoutException
 from utils.visualise import PDBFile
 from spyrmsd import molecule, graph
+
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 still_frames = 10
@@ -32,10 +32,17 @@ def get_seed(smi, seed_confs=None, dataset='drugs'):
             print("smile not in seeds", smi)
             return None, None
         mol = seed_confs[smi][0]
-        data = featurize_mol(mol, dataset)
+        try:
+            data = featurize_mol(mol, dataset)
+        except:
+            return None, None
 
     else:
-        mol, data = featurize_mol_from_smiles(smi, dataset=dataset)
+        try:
+            mol, data = featurize_mol_from_smiles(smi, dataset=dataset)
+        except:
+            return None, None
+            
         if not mol:
             return None, None
     data.edge_mask, data.mask_rotate = get_transformation_mask(data)
@@ -43,7 +50,7 @@ def get_seed(smi, seed_confs=None, dataset='drugs'):
     return mol, data
 
 
-def embed_seeds(mol, data, n_confs, single_conf=False, smi=None, embed_func=None, seed_confs=None, pdb=None, mmff=False):
+def embed_seeds(mol, data, n_confs, single_conf=False, smi=None, embed_func=None, seed_confs=None, pdb=None, mmff=False, molName=""):
     if not seed_confs:
         embed_num_confs = n_confs if not single_conf else 1
         try:
@@ -52,7 +59,7 @@ def embed_seeds(mol, data, n_confs, single_conf=False, smi=None, embed_func=None
             print(e.output)
             pass
         if len(mol.GetConformers()) != embed_num_confs:
-            print(len(mol.GetConformers()), '!=', embed_num_confs)
+            print(f"Error: Could only generate {len(mol.GetConformers())} conformers for {molName} instead of {embed_num_confs}")
             return [], None
         if mmff: try_mmff(mol)
 
@@ -143,14 +150,14 @@ def sample(conformers, model, sigma_max=np.pi, sigma_min=0.01 * np.pi, steps=20,
                     dih_iso = np.unique(dih_iso, axis=0)
 
                     if len(dih_iso) > 32:
-                        print("reduce isomorphisms from", len(dih_iso), "to", 32)
+                        #print("reduce isomorphisms from", len(dih_iso), "to", 32)
                         dih_iso = dih_iso[np.random.choice(len(dih_iso), replace=False, size=32)]
-                    else:
-                        print("isomorphisms", len(dih_iso))
+                    #else:
+                        #print("isomorphisms", len(dih_iso))
                     dih_iso = torch.from_numpy(dih_iso).to(device)
 
             except TimeoutException as e:
-                print("Timeout generating with non invariant kernel")
+                #print("Timeout generating with non invariant kernel")
                 pg_invariant = False
 
     for batch_idx, data in enumerate(loader):

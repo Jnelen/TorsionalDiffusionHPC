@@ -17,7 +17,10 @@ def divergence(model, data, data_gpu, method):
 
 
 def mmff_energy(mol):
-    energy = AllChem.MMFFGetMoleculeForceField(mol, AllChem.MMFFGetMoleculeProperties(mol, mmffVariant='MMFF94s')).CalcEnergy()
+    try:
+        energy = AllChem.MMFFGetMoleculeForceField(mol, AllChem.MMFFGetMoleculeProperties(mol, mmffVariant='MMFF94s')).CalcEnergy()
+    except:
+        energy = np.nan
     return energy
 
 
@@ -92,9 +95,16 @@ def log_det_jac(data):
         dx = dx - np.cross(omega, pos)
         jac.append(dx.flatten())
     jac = np.array(jac)
-    _, D, _ = np.linalg.svd(jac)
-    return np.sum(np.log(D))
-
+    
+    try:
+        _, D, _ = np.linalg.svd(jac)
+        return np.sum(np.log(D))
+    except Exception as e:
+        if data.edge_mask.sum() < 0.5:
+            ## in case there are 0 rotatable bonds, return 0
+            return 0
+        else:
+            raise e
 
 kT = 0.592
 def free_energy(dlogp, energy, bootstrap_=True):

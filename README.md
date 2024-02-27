@@ -1,110 +1,101 @@
-# Torsional Diffusion for Molecular Conformer Generation
+# TorsionalDiffusionHPC
 
-Implementation of [Torsional Diffusion for Molecular Conformer Generation](https://arxiv.org/abs/2206.01729) by B Jing,* G Corso,* J Chang, R Barzilay and T Jaakkola.
+TorsionalDiffusionHPC is a fork of [torsional-diffusion](https://github.com/gcorso/torsional-diffusion), which adds support to run it on HPC systems using Slurm and Singularity.  
+For more details about torsional-diffusion we refer to the original [Github](https://github.com/gcorso/torsional-diffusion) repo and the [paper on arXiv](https://arxiv.org/abs/2206.01729).
 
-Torsional diffusion is the state-of-the-art method for molecular conformer generation on the GEOM-DRUGS dataset and the first machine learning method to consistently outperform the established commercial software OMEGA. Torsional diffusion uses a novel diffusion framework that operates on the space of torsion angles via a diffusion process on the hypertorus and an extrinsic-to-intrinsic score model. It also provides exact likelihoods, which are used build the first generalizable Boltzmann generator.
+## Requirements:
+* Singularity 
+* Slurm
 
-If you have questions, don't hesitate to open an issue or send us an email at gcorso@mit.edu and bjing@mit.edu.
+## Installation instructions:
+1. Clone the repository and navigate to it
+    ```
+    git clone https://github.com/Jnelen/TorsionalDiffusionHPC
+    ```
+   ```
+   cd TorsionalDiffusionHPC
+   ```
+2. Download the singularity image (~4 GB) to the singularity directory located in the main TorsionalDiffusionHPC directory. The singularity image contains all the necessary packages and dependencies to run DiffDock correctly
 
-![](.overview.png)
+   ```
+   wget --no-check-certificate -r "https://drive.usercontent.google.com/download?id=1Uzx7OqghIqSoNBpZ1_2V76sMvl7XXOS2&confirm=t" -O singularity/TorsionalDiffusionHPC.sif
+   ```
+   
+   alternatively, you can build the singularity image yourself using:
+   ```
+   singularity build singularity/TorsionalDiffusionHPC.sif singularity/TorsionalDiffusionHPC.def
+   ```
+3. Download one of the trained models to the `workdir` directory from [this shared Drive](https://drive.google.com/drive/folders/1BBRpaAvvS2hTrH81mAE4WvyLIKMyhwN7?usp=sharing). I set the default model to use [drugs_default](https://drive.google.com/drive/folders/1aW-FRtriTUpsOBy1vF495BsX4zktltg6?usp=drive_link), so I recommend installing this one to the `workdir` directory, however other models are supported as well.
+    make the `workdir` to download the model to:
+    ```
+    mkdir workdir
+    ```
+    download the drugs_default model:
+   ```
+    wget --no-check-certificate -r "https://drive.usercontent.google.com/download?id=1Yez3v0H8trS4jAnrn8vdzt-R7TkM1L_U&confirm=t" -O workdir/drugs_default.zip
+   ```
+   unzip the model and remove the zip file:
+    ```
+    unzip workdir/drugs_default.zip -d workdir/
+   ```
+     ```
+    rm workdir/drugs_default.zip
+   ```
+4. Run a test example to generate the required (hidden) .npy files. This only needs to happen once and should only take about 5-10 minutes.   
+   ```
+   mkdir output
+   ```  
+   ```
+   python launch_jobs.py -l data/test.csv -out output/test -j 1
+   ```  
+## Options
+I attempted to provide most of the original options implemented in [torsional-diffusion](https://github.com/gcorso/torsional-diffusion), while also keeping things simple.
+Additionally, I added some useful features (for example compressing the results, removing salts, ...) and scripts which can make general usage easier. Here is a short overview:
+### Command arguments
 
-## Setting up Conda environment
+#### (Most relevant) TorsionalDiffusion Options
 
-Create new [Conda](https://docs.anaconda.com/anaconda/install/index.html) environment using `environment.yml`. You might need to adjust the `cudatoolkit` version to match your cuda version or set `cpuonly`.
+- `--ligands LIGANDS, -l LIGANDS`: The path to and sdf file or a directory of mol(2)/sdf ligand files. Csv and pkl files are also accepted as input. All of these formats are also allowed to have been compressed by gzip (.gz)
+- `--out_dir OUT_DIR, -out OUT_DIR, -o OUT_DIR`: Directory where the output structures will be saved to
+- `--num_confs NUM_CONFS, -n NUM_CONFS`: How many conformers to output per compound. The default value is 10
+- `--dump_pymol`: Save .pdb file with denoising dynamics
+- `--pre-mmff`: Run MMFF on the local structure conformer
+- `--post-mmff`: Run MMFF on the final generated structures
+- `--no_energy, -ne`: Skip Calculating the energies and other metrics
+- `--particle_guidance {0,1,2,3,4}, -pg {0,1,2,3,4}`: Define which type of Particle Guidance you want to use:
+    - 0: No particle guidance
+    - 1: Permutation invariant minimize recall error
+    - 2: Permutation invariant minimize precision error
+    - 3: Non-permutation invariant minimize recall error
+    - 4: Non-permutation invariant minimize precision error
 
-    conda env create -f environment.yml
-    conda activate torsional_diffusion
+#### Extra Options
 
-Install `e3nn` using pip:
+- `--smiles_as_id, -si`: Use a molecule's smile as the ID, even if the molecule has a name
+- `--compress_output, -co`: Compress the output pkl files using gzip
+- `--remove_salts, -rs`: Remove salts and fragments from the input molecules
+- `--random_coords, -rc`: Use the "useRandomCoords=True" option when generating initial RDKit conformers (more robust, but slower)
+- `--random_seed RANDOM_SEED, --seed RANDOM_SEED`: Random seed to produce (approximate) deterministic results for identical datasets.
 
-    pip install e3nn
+#### Slurm Options
 
-If you run into issues when importing `torch_geometric`, try to install `pyg` after having installed `pytorch` and check that they both have the right cuda/cpu version. 
+- `--jobs JOBS, -j JOBS`: Number of jobs to use
+- `--time TIME, -t TIME, -tj TIME`: Max amount of time each job can run
+- `--queue QUEUE, -qu QUEUE`: On which node to launch the jobs. The default value is the default queue for the user. Might need to be specified if there is no default queue configured
+- `--mem MEM, -m MEM`: How much memory to use for each job. The default value is 4GB
+- `--gpu, -gpu, -GPU, --GPU`: Use GPU resources. This will accelerate docking calculations if a compatible GPU is available
+- `--cores CORES, -c CORES`: How many cores to use for each job. The default value is 1
 
-## Generate conformers from SMILES
+### Scripts
+The additional scripts are located in the `scripts/` directory. Currently there are two:
+- relaunchFailedJobs.py  
+Sometimes jobs fail or produce errors. This can especially be annoying when running a large amount of jobs. After all jobs stopped running, but not all jobs finished successfully, you run this script to automatically rerun the jobs that didn't produce a final output.  
+Usage: `python scripts/relaunchFailedJobs.py <output_directory>`
+- joinPkls.py  
+This script can join all the results from every job back together into one large (compressed) pkl. Additionally, energy csvs will also be joined if they were generated.  
+Usage: `singularity run singularity/TorsionalDiffusionHPC.sif python scripts/joinPkls.py <output_directory>`
 
-To use our trained models download the `workdir` directory from [this shared Drive](https://drive.google.com/drive/folders/1BBRpaAvvS2hTrH81mAE4WvyLIKMyhwN7?usp=sharing). To generate conformers using the trained model, create a `smiles.csv` file containing at every line `smile_str, num_conformers, smile_str` (for example `CN1C=NC2=C1C(=O)N(C(=O)N2C)C, 10, CN1C=NC2=C1C(=O)N(C(=O)N2C)C`) where `smile_str` is the SMILE representation of the molecule (note: technically the first is the one used as identifier of the molecule and the second the one used to create it but we suggest to keep them the same). Then you can generate the conformers running:
-
-    python generate_confs.py --test_csv smiles.csv --inference_steps 20 --model_dir workdir/drugs_default --out conformers_20steps.pkl --tqdm --batch_size 128 --no_energy
-
-This script saves to `conformers_20steps.pkl` a dictionary with the SMILE as key and the RDKit molecules with generated conformers as value. By default it generates for every row in `smiles.csv` `2*num_confs` conformers, if you are interested in a fixed number of conformers you can specify it with the `--confs_per_mol` parameter.
-
-## Training model
-
-Download and extract all the relevant data from the compressed `.tar.gz` folders from [this shared Drive](https://drive.google.com/drive/folders/1BBRpaAvvS2hTrH81mAE4WvyLIKMyhwN7?usp=sharing) putting them in the subdirectory `data`. These contain the GEOM datasets used in the project (license CC0 1.0), the splits from GeoMol and the pickle files with preprocessed molecules (see below to recreate them) and are divided based on the dataset they refer to. Then, you can start training:
-
-    python train.py --log_dir [WORKDIR]
-
-Details on all tunable hyperparameters or how to point to different datasets can be found in  `utils/parsing.py`. The first time the training is run, a featurisation procedure starts (about 2h on single core CPU, faster with more cores) and caches the result so that it won't be required the next time training is run.
-
-## Running evaluation
-
-In order to evaluate a model on the test set of one of the datasets you need to first download the data (see section above, but the only files needed are `test_smiles.csv`, list of SMILES strings and the number of conformers, and `test_mols.pkl`, dictionary of ground truth conformers). Locate the work directory of your trained model and, then, you can generate the conformers with the model via:
-
-    python generate_confs.py --test_csv data/DRUGS/test_smiles.csv --inference_steps 20 --model_dir workdir/drugs_default --out workdir/drugs_default/drugs_20steps.pkl --tqdm --batch_size 128 --no_energy
-
-Finally, evaluate the error of the conformers using the following command:
-
-    python evaluate_confs.py --confs workdir/drugs_default/drugs_steps20.pkl --test_csv data/DRUGS/test_smiles.csv --true_mols data/DRUGS/test_mols.pkl --n_workers 10
-
-To relax and predict the ensemble properties, use the `optimize_confs.py` script. Note that this requires to also locally have [xTB](https://xtb-docs.readthedocs.io/en/latest/setup.html) installed and to specify its installation path as an argument.
-
-## Conformer matching
-
-If you are planning on training torsional diffusion on your own dataset or testing different local structure samplers, you will first have to run the conformer matching procedure. This is performed by the `standardize_confs.py` script, which assumes that you have the files organised in individual pickle files as by default in GEOM. You can run the conformer matching procedure in parallel on many workers with the following bash script (assuming you have 300k molecules in your dataset, adjust the limits based on your dataset size):
-
-    for i in $(seq 0, 299); do
-        python standardize_confs.py --out_dir data/DRUGS/standardized_pickles --root data/DRUGS/drugs/ --confs_per_mol 30 --worker_id $i --jobs_per_worker 1000 &
-    done
-
-## Torsional Boltzmann generator
-
-To train the torsional Boltzmann generator reported in the paper at temperature 500K, run:
-
-    python train.py --boltzmann_training --boltzmann_weight --sigma_min 0.1 --temp 500 --adjust_temp --log_dir workdir/boltz_T500 --cache data/cache/boltz10k --split_path data/DRUGS/split_boltz_10k.npy --restart_dir workdir/drugs_seed_boltz/
-
-Then to test it:
-
-    python test_boltzmann.py --model_dir workdir/boltz_T500 --temp 500 --model_steps 20 --original_model_dir /workdir/drugs_seed_boltz/ --out boltzmann.out
-
-
-## Particle Guidance sampling
-
-In [this manuscript]() we propose a new sampling method for jointly sampling a set of particles using diffusion models that we call particle guidance. We demonstrate that for the task of molecular conformer generation this provides significant improvements in precision and recall compared to standard I.I.D. diffusion sampling. To run the particle guidance sampling with torsional diffusion to replicate the results of the paper (similarly you can run on your own molecules)
-
-For the permutation invariant kernel guidance (higher quality, slower):
-
-    # minimizing recall error
-    python generate_confs.py --tqdm --batch_size 128 --no_energy --inference_steps=20 --model_dir=workdir/drugs_default --test_csv=data/DRUGS/test_smiles.csv --pg_invariant=True --pg_kernel_size_log_0=1.7565691770646286 --pg_kernel_size_log_1=1.1960868735428605 --pg_langevin_weight_log_0=-2.2245183818892103 --pg_langevin_weight_log_1=-2.403905082248579 --pg_repulsive_weight_log_0=-2.158537381110402 --pg_repulsive_weight_log_1=-2.717482077162461 --pg_weight_log_0=0.8004013644746992 --pg_weight_log_1=-0.9255658381081596
-    # minimizing precision error
-    python generate_confs.py --tqdm --batch_size 128 --no_energy --inference_steps=20 --model_dir=workdir/drugs_default --test_csv=data/DRUGS/test_smiles.csv --pg_invariant=True --pg_kernel_size_log_0=-0.9686202580381296 --pg_kernel_size_log_1=-0.7808409291022302 --pg_langevin_weight_log_0=-2.434216242826782 --pg_langevin_weight_log_1=-0.2602238633333869 --pg_repulsive_weight_log_0=-2.0439285313973237 --pg_repulsive_weight_log_1=-1.468234554877924 --pg_weight_log_0=0.3495680598729498 --pg_weight_log_1=-0.22001939454654185
-
-
-For the non-permutation invariant kernel guidance (faster, slightly lower quality, but still better than I.I.D.):
-
-    # minimizing recall error
-    python generate_confs.py --tqdm --batch_size 128 --no_energy --inference_steps=20 --model_dir=workdir/drugs_default --test_csv=data/DRUGS/test_smiles.csv --pg_kernel_size_log_0=2.35958 --pg_kernel_size_log_1=-0.78826 --pg_langevin_weight_log_0=-1.55054 --pg_langevin_weight_log_1=-2.70316 --pg_repulsive_weight_log_0=1.01317 --pg_repulsive_weight_log_1=-2.68407 --pg_weight_log_0=0.60504 --pg_weight_log_1=-1.15020
-    # minimizing precision error
-    python generate_confs.py --tqdm --batch_size 128 --no_energy --inference_steps=20 --model_dir=workdir/drugs_default --test_csv=data/DRUGS/test_smiles.csv --pg_kernel_size_log_0=1.29503 --pg_kernel_size_log_1=1.45944 --pg_langevin_weight_log_0=-2.88867 --pg_langevin_weight_log_1=-2.47591 --pg_repulsive_weight_log_0=-1.01222 --pg_repulsive_weight_log_1=-1.91253 --pg_weight_log_0=-0.16253 --pg_weight_log_1=0.79355
-
-## Citation
-
-If you use this code, please cite:
-
-    @article{jing2022torsional,
-          title={Torsional Diffusion for Molecular Conformer Generation}, 
-          author={Bowen Jing and Gabriele Corso and Jeffrey Chang and Regina Barzilay and Tommi Jaakkola},
-          journal={arXiv preprint arXiv:2206.01729},
-          year={2022}
-    }
-
-If you also employ the particle guidance sampling technique, please also cite:
-
-    @article{corso2023particle,
-          title={Particle Guidance: non-I.I.D. Diverse Sampling with Diffusion Models}, 
-          author={Gabriele Corso and Yilun Xu and Valentin de Bortoli and Regina Barzilay and Tommi Jaakkola},
-          year={2023}
-    }
 
 ## License
 MIT
+
